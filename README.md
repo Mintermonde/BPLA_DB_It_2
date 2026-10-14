@@ -1,191 +1,281 @@
-# База Данных: Гражданские БПЛА в России (uav_civil_db)
+# 🚁 UAV Fleet Management System — Backend API
 
-Данная база данных (Итерация №1) спроектирована для учета физических экземпляров гражданских беспилотных воздушных судов (БВС), отслеживания их конструктивного состава (компонентов), ведения истории технического обслуживания и ремонтов (ТОиР), а также контроля собственников и допусков внешних пилотов согласно нормативной базе РФ.
-
----
-
-## Быстрый запуск всей системы через Docker Compose
-
-Для того чтобы развернуть базу данных со всеми таблицами, связями и настройками в один клик без ручного ввода SQL-кода, в проекте настроена автоматическая сборка.
-
-### Инструкция по запуску:
-1. Скачайте и запустите приложение [Docker Desktop](https://docker.com). Убедитесь, что индикатор в левом нижнем углу загорелся **зеленым** (*Engine running*).
-2. Откройте терминал (**Git Bash**, cmd или терминал вашей IDE) в корневой папке нашего проекта.
-3. Выполните команду для сборки и фонового запуска контейнера:
-   ```bash
-   docker compose up -d
-   ```
-4. База данных автоматически поднимется, настроит внутренние связи и применит структуру таблиц из папки `./init-scripts`.
-
-### Реквизиты для подключения (DBeaver / DataGrip):
-* **Host (Хост):** `localhost`
-* **Port (Порт):** `5432`
-* **Database (База данных):** `uav_civil_db`
-* **Username (Пользователь):** `postgres`
-* **Password (Пароль): uav_password
-
-### Полезные команды управления в Git Bash:
-* Остановить базу данных: `docker compose stop`
-* Запустить остановленную базу: `docker compose start`
-* Полностью удалить контейнер (с сохранением данных): `docker compose down`
-* Полностью сбросить базу и накатить скрипты заново с нуля (очистка кэша): 
-  ```bash
-  docker compose down -v && docker compose up -d
-  ```
+Полнофункциональная система учета, эксплуатации и сервисного обслуживания (ТОиР / MRO) гражданских беспилотных авиационных систем (БАС / БПЛА) с разделением ролей, защитой персональных данных (152-ФЗ) и нативной интеграцией с СУБД PostgreSQL.
 
 ---
 
-## 1. Пользовательские типы данных (Enums)
-
-Для обеспечения строгости и типизации на уровне СУБД используются следующие перечисления:
-* `uav_aerodynamic_schema`: Конструктивные схемы БПЛА (`Fixed-wing`, `Multirotor`, `VTOL`, `Helicopter`).
-* `uav_weight_category`: Законодательные категории массы в РФ (`Under_150g`, `150g_to_30kg`, `Over_30kg`).
-* `uav_instance_status`: Текущее состояние борта (`Active`, `Maintenance`, `Storage`, `Decommissioned`).
-* `maintenance_type`: Виды регламентных работ (`Pre-flight`, `Post-flight`, `TO-1`, `TO-2`, `Seasonal`).
-* `owner_legal_type`: Юридический статус собственника (`Individual`, `IP`, `LE`).
-
----
-
-## 2. Описание таблиц и полей
-
-### Таблица `manufacturers` (Производители)
-Хранит данные о заводах-изготовителях воздушных судов, полетных контроллеров, двигателей и других комплектующих.
-* `manufacturer_id` (SERIAL, PK): Уникальный идентификатор записи.
-* `name` (VARCHAR, UNIQUE): Наименование компании (например, ООО "Геоскан").
-* `country` (VARCHAR): Страна базирования (по умолчанию — "Россия").
-* `inn` (VARCHAR): ИНН юридического лица/ИП для прозрачной интеграции с госреестрами.
-* `website` (VARCHAR): Официальный сайт.
-* `contact_phone` (VARCHAR): Контактный номер телефона.
-* `created_at` (TIMESTAMP): Дата и время добавления записи.
-
-### Таблица `uav_owners` (Владельцы БПЛА)
-Реестр собственников гражданских беспилотников (физические лица, ИП и организации).
-* `owner_id` (SERIAL, PK): Идентификатор владельца.
-* `legal_type` (ENUM): Юридический статус контрагента (`Individual`, `IP`, `LE`).
-* `name` (VARCHAR): ФИО физического лица или официальное наименование организации.
-* `inn` (VARCHAR): ИНН собственника.
-* `ogrn` (VARCHAR): ОГРН или ОГРНИП.
-* `snils` (VARCHAR): СНИЛС (необходим для физических лиц при подаче заявлений в Росавиацию).
-* `contact_email` / `contact_phone` (VARCHAR): Контактные данные.
-* `legal_address` (TEXT): Юридический/фактический адрес регистрации.
-
-### Таблица `uav_users` (Пилоты / Операторы)
-Реестр специалистов, имеющих доступ к управлению и эксплуатации техники.
-* `user_id` (SERIAL, PK): Идентификатор пользователя.
-* `first_name` / `last_name` / `middle_name` (VARCHAR): Полные ФИО пилота.
-* `pilot_license_number` (VARCHAR): Номер свидетельства внешнего пилота (критично для аппаратов тяжелее 30 кг).
-* `license_issue_date` / `license_expiry_date` (DATE): Сроки действия лицензии пилота.
-* `medical_certificate_number` (VARCHAR): Справка ВЛЭК (врачебно-летной экспертной комиссии).
-* `phone` (VARCHAR, UNIQUE) / `email` (VARCHAR, UNIQUE): Контакты сотрудника.
-* `is_active` (BOOLEAN): Статус активности (уволен / отстранен / в штате).
-
-### Таблица `uav_models` (Модели БПЛА)
-Справочник серийно выпускаемых линеек беспилотных комплексов.
-* `model_id` (SERIAL, PK): Идентификатор модели.
-* `manufacturer_id` (INT, FK): Ссылка на разработчика (`manufacturers`).
-* `model_name` (VARCHAR): Название модели (например, "Supercam S350").
-* `aerodynamic_schema` (ENUM): Аэродинамическая схема комплекса.
-* `weight_category` (ENUM): Весовая категория для нормативного контроля.
-* `mtow_kg` (NUMERIC): Максимальная взлетная масса (MTOW) в килограммах.
-* `max_flight_time_mins` (INT): Предельная длительность нахождения в воздухе.
-* `max_range_km` (NUMERIC): Максимальный радиус/дальность действия.
-* `cruising_speed_kmh` (INT): Крейсерская скорость движения.
-* *Ограничение*: Уникальный составной индекс на пару `(manufacturer_id, model_name)`.
-
-### Таблица `user_model_permissions` (Допуски пилотов к моделям)
-Связующая таблица (Многие-ко-Многим) для фиксации права пилота управлять конкретным типом техники.
-* `permission_id` (SERIAL, PK): Идентификатор допуска.
-* `user_id` (INT, FK): Ссылка на пилота (`uav_users`).
-* `model_id` (INT, FK): Ссылка на модель беспилотника (`uav_models`).
-* `granted_date` (DATE): Дата выдачи квалификационного допуска.
-* `insurance_policy_number` (VARCHAR): Номер полиса обязательного страхования ответственности владельца перед третьими лицами, привязанный к пилоту.
-
-### Таблица `uav_instances` (Физические борты БПЛА)
-Конкретные физические единицы (коптеры/самолеты), имеющие уникальные номера.
-* `instance_id` (SERIAL, PK): Идентификатор конкретного борта.
-* `model_id` (INT, FK): Ссылка на базовую модель (`uav_models`).
-* `owner_id` (INT, FK): Ссылка на текущего законного владельца (`uav_owners`).
-* `serial_number` (VARCHAR, UNIQUE): Заводской серийный номер изделия.
-* `rosaviatsia_number` (VARCHAR): Номер государственного учета, присвоенный Росавиацией.
-* `production_date` (DATE): Точная дата сборки/выпуска.
-* `total_flight_time_hours` (NUMERIC): Суммарная общая наработка (налёт) борта в часах.
-* `current_status` (ENUM): Эксплуатационный статус машины.
-* `last_update` (TIMESTAMP): Время последнего изменения карточки борта.
-
-### Таблица `components_catalog` (Каталог запчастей / BOM)
-Справочник номенклатуры запасных частей и модулей полезной нагрузки.
-* `component_type_id` (SERIAL, PK): Идентификатор типа компонента.
-* `manufacturer_id` (INT, FK): Ссылка на производителя детали (`manufacturers`).
-* `part_number` (VARCHAR, UNIQUE): Заводской артикул детали.
-* `component_name` (VARCHAR): Коммерческое наименование (например, "Li-Ion 6S 21700").
-* `category` (VARCHAR): Категория, защищенная ограничением `CHECK` (значения: `Airframe`, `Engine_Electric`, `Engine_ICE`, `ESC`, `Autopilot`, `GNSS_RTK`, `Telemetry_Radio`, `Battery`, `Payload_Optics`, `Payload_LiDAR`, `Rescue_System`).
-* `mtbf_hours` (INT): Гарантированный ресурс или средняя наработка на отказ (MTBF) в часах.
-* `weight_g` (INT): Вес детали в граммах для весового контроля.
-* `specifications` (JSONB): Документ JSON со свободными парами "ключ-значение" под разные ТТХ (тяга мотора, разрешение матрицы камеры, емкость батареи).
-
-### Таблица `instance_components` (Установленные на борт детали)
-Показывает физический состав («сборку») каждого конкретного БПЛА в данный момент времени.
-* `installed_component_id` (SERIAL, PK): Идентификатор установленной единицы.
-* `instance_id` (INT, FK): Ссылка на борт БПЛА (`uav_instances`).
-* `component_type_id` (INT, FK): Ссылка на номенклатуру из каталога (`components_catalog`).
-* `component_serial_number` (VARCHAR, UNIQUE): Уникальный серийный номер конкретного мотора, платы или камеры.
-* `installation_date` (DATE): Дата монтажа узла на беспилотник.
-* `component_operating_hours` (NUMERIC): Наработка конкретно этого узла в часах (сбрасывается или учитывается при ремонтах).
-* `is_active` (BOOLEAN): Флаг активности (`TRUE` — деталь сейчас стоит на дроне, `FALSE` — снята/списана).
-
-### Таблица `maintenance_logs` (Журнал ТОиР)
-История всех сервисных мероприятий, проверок и инспекций техники.
-* `log_id` (SERIAL, PK): Номер записи ТО.
-* `instance_id` (INT, FK): Ссылка на обслуженный борт (`uav_instances`).
-* `type_of_maintenance` (ENUM): Регламент выполненных работ (`Pre-flight` ... `Seasonal`).
-* `maintenance_date` (TIMESTAMP): Точная дата и время проведения обслуживания.
-* `uav_operating_hours_at_maintenance` (NUMERIC): Зафиксированный налёт часов борта на момент заезда в сервис.
-* `description` (TEXT): Текстовое описание дефектов, замечаний и выполненных процедур.
-* `engineer_name` (VARCHAR): ФИО инженера, проводившего работы и подписавшего акт.
-* `next_maintenance_date` (DATE): Плановая дата следующей обязательной проверки.
-
-### Таблица `maintenance_component_replacements` (Замены при ремонте)
-Фиксирует изменения в составе оборудования БПЛА, произошедшие в рамках конкретного сервисного лога.
-* `replacement_id` (SERIAL, PK): Идентификатор операции замены.
-* `log_id` (INT, FK): Ссылка на документ обслуживания (`maintenance_logs`).
-* `removed_component_id` (INT, FK): Ссылка на демонтированную деталь (`instance_components`), у которой флаг `is_active` переводится в `FALSE`.
-* `installed_component_id` (INT, FK): Ссылка на новую установленную деталь.
-* `reason_for_replacement` (TEXT): Причина (например, "деструкция лопастей после грубой посадки").
+## 📑 Оглавление
+1. [Обзор проекта и решаемые задачи](#-обзор-проекта-и-решаемые-задачи)
+2. [Технологический стек](#-технологический-стек)
+3. [Архитектура решения (Clean Architecture)](#-архитектура-решения-clean-architecture)
+4. [Структура базы данных и доменная модель](#-структура-базы-данных-и-доменная-модель)
+5. [Безопасность, аутентификация и Data Privacy](#-безопасность-аутентификация-и-data-privacy)
+6. [Техническая подноготная и инженерные решения](#-техническая-подноготная-и-инженерные-решения)
+7. [Интерактивный клиент и Swagger UI](#-интерактивный-клиент-и-swagger-ui)
+8. [Карта API (REST-контроллеры)](#-карта-api-rest-контроллеры)
+9. [Инструкция по развертыванию и запуску](#-инструкция-по-развертыванию-и-запуску)
+10. [Тестовые учетные записи](#-тестовые-учетные-записи)
 
 ---
 
-## 3. Визуальная схема связей (ER-диаграмма)
+## 🎯 Обзор проекта и решаемые задачи
 
-Ниже представлена структура связей между сущностями. GitHub и DataGrip автоматически визуализируют этот блок в виде интерактивной схемы со стрелочками:
+Система разработана для комплексного контроля за парком гражданских беспилотных воздушных судов в соответствии с воздушным законодательством РФ и требованиями Росавиации. 
 
-```mermaid
-erDiagram
-    MANUFACTURERS ||--o{ UAV_MODELS : "выпускает (1:N)"
-    MANUFACTURERS ||--o{ COMPONENTS_CATALOG : "производит (1:N)"
-    
-    UAV_MODELS ||--o{ UAV_INSTANCES : "базируется на (1:N)"
-    UAV_MODELS ||--o{ USER_MODEL_PERMISSIONS : "требует допуск (1:N)"
-    
-    UAV_OWNERS ||--o{ UAV_INSTANCES : "владеет (1:N)"
-    UAV_USERS ||--o{ USER_MODEL_PERMISSIONS : "имеет квалификацию (1:N)"
-    
-    UAV_INSTANCES ||--o{ INSTANCE_COMPONENTS : "состоит из (1:N)"
-    COMPONENTS_CATALOG ||--o{ INSTANCE_COMPONENTS : "каталогизирует (1:N)"
-    
-    UAV_INSTANCES ||--o{ MAINTENANCE_LOGS : "проходит обслуживание (1:N)"
-    MAINTENANCE_LOGS ||--o{ MAINTENANCE_COMPONENT_REPLACEMENTS : "фиксирует замены (1:N)"
-    INSTANCE_COMPONENTS ||--o{ MAINTENANCE_COMPONENT_REPLACEMENTS : "изымается/устанавливается (1:N)"
+### Основные функциональные блоки:
+- **Учет парка бортов:** Регистрация физических экземпляров БАС, привязка учетных номеров Росавиации, серийных номеров, учет наработки моточасов и полисов страхования КАСКО.
+- **Справочники и модели:** Каталог производителей техники, спецификации серийных линеек БПЛА с летными и весогабаритными ТТХ.
+- **BOM-каталог комплектующих (Bill of Materials):** Учет установленных на борта узлов, двигателей, регуляторов, полезных нагрузок и трекинг остаточного ресурса аккумуляторов (циклы заряда).
+- **Летный состав и матрица допусков:** Реестр внешних пилотов, сроки действия свидетельств, медсправок ВЛЭК и фиксация квалификационных допусков пилотов к конкретным моделям.
+- **ТОиР (MRO) и инженеры:** Журнал регламентных технических обслуживаний (предполетные, послеполетные, ТО-1, ТО-2, сезонные) со связью с сертифицированными специалистами и фиксацией замены узлов.
+
+---
+
+## 🛠 Технологический стек
+
+- **Язык программирования:** C# 12
+- **Платформа:** ASP.NET Core (.NET 8 LTS)
+- **СУБД:** PostgreSQL 15 (Docker)
+- **ORM:** Entity Framework Core 8 + Npgsql.EntityFrameworkCore.PostgreSQL
+- **Аутентификация:** JWT Bearer (JSON Web Tokens)
+- **Хэширование паролей:** PBKDF2 с HMAC-SHA512 + криптографическая соль
+- **Документация:** OpenAPI / Swagger UI (Swashbuckle 6.9)
+- **Фронтенд-клиент:** Single Page Application (HTML5, Bootstrap 5, Vanilla JS / Fetch API)
+
+---
+
+## 🏛 Архитектура решения (Clean Architecture)
+
+Проект спроектирован по принципам **Clean Architecture / N-Tier** с разделением ответственности на 4 слабосвязанных слоя внутри одного Solution (`UavFleetManagement.slnx` / `.sln`):
+
+```text
+UavFleetManagement/
+│
+├── 1. Core / Domain (UavFleetManagement.Domain)
+│   ├── Entities/                 # 13 сущностей предметной области
+│   │   ├── Catalog/              # Manufacturer, UavModel, ComponentCatalog
+│   │   ├── Fleet/                # UavOwner, UavInstance, InstanceComponent
+│   │   ├── Pilots/               # UavUser, UserModelPermission
+│   │   ├── Maintenance/          # MaintenanceLog, MaintenanceComponentReplacement
+│   │   ├── Engineers/            # Engineer
+│   │   └── Identity/             # UserCredential, SuperuserCredential
+│   └── Enums/                    # 7 C# Enums, маппящихся на ENUM-типы PostgreSQL
+│
+├── 2. Business Logic (UavFleetManagement.Application)
+│   ├── Common/
+│   │   ├── Interfaces/           # IApplicationDbContext, IAuthService, ITokenService, IPasswordHasher
+│   │   └── Exceptions/           # NotFoundException, BadRequestException, UnauthorizedException, ForbiddenException
+│   └── DTOs/                     # Контракты данных с разделением уровней приватности
+│       ├── Auth/                 # LoginRequestDto, RegisterRequestDto, AuthResponseDto
+│       ├── Catalog/              # ManufacturerDto, UavModelSummaryDto, UavModelDetailsDto
+│       ├── Fleet/                # UavOwnerPublicDto, UavOwnerAdminDto, UavInstanceDto
+│       ├── Pilots/               # UavUserPublicDto, UavUserAdminDto, UserModelPermissionDto
+│       ├── Maintenance/          # MaintenanceLogDto, MaintenanceReplacementDto
+│       └── Engineers/            # EngineerDto, EngineerCreateDto
+│
+├── 3. Infrastructure (UavFleetManagement.Infrastructure)
+│   ├── Identity/                 # PasswordHasher (PBKDF2/SHA512), TokenService (JWT), AuthService
+│   └── Persistence/
+│       ├── Contexts/             # ApplicationDbContext (Fluent API сопоставление полей, связей, типов)
+│       ├── CustomEnumNameTranslator.cs # Транслятор имен кастомных ENUM типов PostgreSQL
+│       └── DbInitializer.cs      # Автоматическое DDL-создание таблиц и сидирование данных
+│
+└── 4. Presentation (UavFleetManagement.Api)
+    ├── Controllers/              # 12 REST-контроллеров по каждой предметной таблице
+    ├── Middlewares/              # ErrorHandlingMiddleware (перехват исключений и распаковка InnerException)
+    ├── Properties/               # launchSettings.json (настройка портов 5000 / 7001)
+    ├── wwwroot/                  # Интерактивный двухэкранный клиент index.html
+    ├── appsettings.json          # Строки подключения к PostgreSQL и параметры JWT
+    └── Program.cs                # Регистрация DI, конвейер HTTP, Swagger и NpgsqlDataSourceBuilder
 ```
 
-### Текстовое описание правил удаления (Foreign Key Constraints)
+### Направление зависимостей:
+`Api` ──> `Application` <── `Infrastructure`
+  │             │               │
+  └───> `Domain` <──────────────┘
 
-* ⚠️ **`ON DELETE RESTRICT` (Запрет удаления источника):**
-  * `manufacturers` ➔ `uav_models` / `components_catalog` — нельзя удалить завод, если в базе зарегистрированы его дроны или детали.
-  * `uav_models` ➔ `uav_instances` — нельзя удалить модель БПЛА, пока существует хотя бы один живой борт.
-  * `uav_owners` ➔ `uav_instances` — нельзя удалить карточку владельца, пока на него записана техника.
-  * `components_catalog` ➔ `instance_components` — нельзя удалить деталь из каталога, если она физически смонтирована на каком-то дроне.
+*Слой `Domain` не имеет никаких внешних зависимостей. Бизнес-правила и контракты сосредоточены в `Application`. Доступ к БД и внешние библиотеки инкапсулированы в `Infrastructure`.*
 
-* ⚙️ **`ON DELETE CASCADE` (Каскадное автоматическое удаление):**
-  * `uav_instances` ➔ `instance_components` / `maintenance_logs` — если физический борт окончательно удаляется из системы, автоматически стирается его текущая компоновка и история его ремонтов.
-  * `maintenance_logs` ➔ `maintenance_component_replacements` — при удалении акта техобслуживания удаляются связанные записи о заменах деталей в этой сессии.
-  * `uav_users` ➔ `user_model_permissions` — при удалении профиля пилота стираются все его допуски к полетам.
+---
+
+## 🗄 Структура базы данных и доменная модель
+
+Схема базы данных объединяет 13 таблиц и 7 пользовательских ENUM-типов данных.
+
+### Пользовательские типы данных (PostgreSQL ENUM):
+1. `uav_aerodynamic_schema`: `'Fixed-wing'`, `'Multirotor'`, `'VTOL'`, `'Helicopter'`
+2. `uav_weight_category`: `'Under_150g'`, `'150g_to_30kg'`, `'Over_30kg'`
+3. `uav_instance_status`: `'Active'`, `'Maintenance'`, `'Storage'`, `'Decommissioned'`
+4. `maintenance_type`: `'Pre-flight'`, `'Post-flight'`, `'TO-1'`, `'TO-2'`, `'Seasonal'`
+5. `owner_legal_type`: `'Individual'`, `'IP'`, `'LE'`
+6. `uav_control_type`: `'Autonomous'`, `'Semi-Autonomous'`, `'Manual_Radio'`, `'Manual_FPV'`
+7. `component_condition`: `'New'`, `'Refurbished'`, `'Used'`
+
+### Сущности и таблицы:
+| Таблица | Назначение | Ключевые поля и связи |
+|---|---|---|
+| `manufacturers` | Производители БПЛА и компонентов | `manufacturer_id`, `name` (UNIQUE), `inn`, `website` |
+| `uav_models` | Серийные модели беспилотников | `model_id`, `manufacturer_id` (FK), ТТХ (MTOW, скорости, потолок), `base_price_rub` |
+| `uav_owners` | Реестр владельцев (ФЛ, ИП, ЮЛ) | `owner_id`, `legal_type`, `name`, `inn`, `ogrn`, `snils`, `legal_address` |
+| `uav_users` | Внешние пилоты и операторы БАС | `user_id`, ФИО, `pilot_license_number`, даты лицензии, справка ВЛЭК |
+| `user_model_permissions` | Матрица допусков пилотов к моделям | `permission_id`, `user_id` (FK), `model_id` (FK), `insurance_policy_number` |
+| `uav_instances` | Конкретные физические борта БПЛА | `instance_id`, `serial_number` (UNIQUE), `rosaviatsia_number`, статус, полис КАСКО |
+| `components_catalog` | Каталог номенклатуры деталей (BOM) | `component_type_id`, `part_number`, `category`, `specifications` (JSONB) |
+| `instance_components` | Установленные на борт детали | `installed_component_id`, `instance_id` (FK), серийный номер, наработка часов, циклы АКБ |
+| `maintenance_logs` | Журнал обслуживания (ТОиР) | `log_id`, `instance_id` (FK), `engineer_id` (FK), дата, наработка при ТО, описание |
+| `maintenance_component_replacements` | Фиксация замен деталей при ТО | `replacement_id`, `log_id` (FK), ссылки на снятую и установленную детали |
+| `engineers` | Справочник сертифицированных инженеров | `engineer_id`, ФИО, категория допуска, номер и срок сертификата |
+| `user_credentials` | Учетные записи пользователей (User) | `user_credential_id`, `username`, хэш + соль, привязка к пилоту или инженеру |
+| `superuser_credentials` | Изолированные учетные записи админов | `superuser_id`, `username`, хэш + соль, `security_stamp` |
+
+---
+
+## 🔒 Безопасность, аутентификация и Data Privacy
+
+### 1. Двухуровневая модель доступа (RBAC):
+- **Superuser (Администратор платформы):**
+  - Полный CRUD-доступ ко всем каталогам, бортам, записям ТОиР и учетным записям.
+  - Видит все конфиденциальные данные без цензуры (базовые цены, полисы страхования КАСКО, СНИЛС, полные лицензии пилотов).
+- **User (Обычный пользователь: эксплуатант, пилот, инженер):**
+  - Доступ в режиме чтения к технической информации, необходимой для выполнения полетов.
+  - Персональные и коммерческие данные для роли User автоматически маскируются или скрываются.
+
+> **Важное архитектурное решение:** Инженер (`Engineer`) в системе является **предметной справочной сущностью**, а не отдельной ролью безопасности. Аккаунт инженера авторизуется со стандартными правами уровня `User`, имея связь со своей записью в справочнике специалистов.
+
+### 2. Динамическое маскирование данных (Data Masking):
+Разделение достигается за счет специализированных DTO в слое `Application`:
+- **Модели БПЛА (`uav_models`):**
+  - `User` видит `UavModelSummaryDto`: базовые ТТХ без стоимости.
+  - `Superuser` видит `UavModelDetailsDto`: полные ТТХ, включая поле `basePriceRub`.
+- **Владельцы (`uav_owners`):**
+  - `User` видит `UavOwnerPublicDto`: контакты без ПДн (поля `inn`, `ogrn`, `snils`, `legalAddress` скрыты / возвращают `null`).
+  - `Superuser` видит `UavOwnerAdminDto`: полные реквизиты.
+- **Пилоты (`uav_users`):**
+  - `User` видит `UavUserPublicDto`: номер удостоверения маскируется алгоритмом (например, `PL-******23`), медицинская справка скрыта.
+  - `Superuser` видит `UavUserAdminDto`: полные номера документов и даты их действия.
+- **Борта (`uav_instances`):**
+  - Для `User` поля `hullInsurancePolicy` и `insuranceExpiryDate` принудительно возвращают `null`.
+
+### 3. Хранение учетных данных и криптография:
+- Таблицы `superuser_credentials` и `user_credentials` **физически изолированы**.
+- Хэширование осуществляется алгоритмом **PBKDF2 с HMAC-SHA512** (100 000 итераций) с криптостойкой случайной солью (16 байт) на каждую запись.
+- Пароли в открытом виде и соли никогда не передаются за пределы слоя `Infrastructure` и строго исключены из любых DTO.
+
+---
+
+## 🔬 Техническая подноготная и инженерные решения
+
+В процессе разработки был решен ряд нетривиальных архитектурных задач:
+
+### 1. Нативный маппинг кастомных PostgreSQL ENUM без потери производительности
+*Проблема:* При использовании стандартных `ValueConverter<Enum, string>` в EF Core драйвер Npgsql передает параметры с типом `text`. PostgreSQL строго типизирован и отказывается выполнять неявный каст `text` в пользовательский ENUM (`error 42804: column is of type uav_aerodynamic_schema but expression is of type text`).  
+*Решение:*
+- Внедрен `CustomEnumNameTranslator : INpgsqlNameTranslator`, преобразующий C#-идентификаторы (`FixedWing`, `PreFlight`, `Range150gTo30kg`) в точные строковые имена со знаками дефиса и подчеркивания в PostgreSQL (`Fixed-wing`, `Pre-flight`, `150g_to_30kg`).
+- Подключение контекста сконфигурировано через `NpgsqlDataSourceBuilder.MapEnum<T>()`, что позволило передавать параметры как родные бинарные ENUM-типы PostgreSQL.
+
+### 2. Поддержка JSONB для расширения характеристик производителями
+В таблице `components_catalog` колонка `specifications` сконфигурирована с типом `jsonb`. Это дает нулевую стоимость адаптации: если новый производитель поставляет деталь с уникальными параметрами (разрешение матрицы камеры, частота радиоканала, емкость аккумулятора), эти поля передаются в JSON без изменения схемы БД и без даунтайма.
+
+### 3. Сериализация перечислений в API (System.Text.Json)
+По умолчанию сериализатор .NET преобразует перечисления в целые числа. Для удобства работы фронтенда и Swagger в `Program.cs` зарегистрирован `JsonStringEnumConverter()`. Все входные DTO (`UavModelCreateDto`, `UavInstanceCreateDto` и др.) выполнены в виде классов со значениями по умолчанию, что предотвратило ошибки десериализации при частичных JSON-запросах.
+
+### 4. Отказоустойчивое сидирование (`DbInitializer`)
+Механизм `DbInitializer.SeedAsync()` выполняет сырой DDL-скрипт с конструкциями `CREATE TABLE IF NOT EXISTS` и проверкой наличия внешних ключей. Это гарантирует, что даже если разработчик запустил Docker с ранее созданным именованным томом (volume), недостающие таблицы аутентификации и внешние ключи добавятся автоматически без необходимости ручного сброса БД.
+
+---
+
+## 💻 Интерактивный клиент и Swagger UI
+
+В проект встроен двухэкранный клиент ([`index.html`](file:///c:/Users/shmid/OneDrive/%D0%94%D0%BE%D0%BA%D1%83%D0%BC%D0%B5%D0%BD%D1%82%D1%8B/Desktop/BPLA_DB_it1-main/src/UavFleetManagement.Api/wwwroot/index.html)), раздаваемый сервером по адресу `http://localhost:5000/`:
+
+1. **Экран авторизации (Login Screen):**
+   - До момента успешной аутентификации доступ к интерфейсу таблиц полностью скрыт.
+   - Поддерживает ручной ввод реквизитов и быстрый вход в один клик под **Superuser** или **User**.
+2. **Рабочий кабинет (Main Dashboard):**
+   - Открывается после валидации JWT-токена.
+   - Отображает текущую роль и логин пользователя.
+   - **Таблицы данных с подсветкой Data Masking:** закрытые поля подсвечиваются зеленым для администратора и оранжевым `<скрыто/null>` для обычного пользователя.
+   - **Формы отправки данных в БД:** добавление моделей, регистрация бортов и производителей.
+   - **Консоль ответов API:** вывод «живого» JSON-ответа сервера с кодами HTTP.
+   - **Кнопка «Выйти»:** мгновенный сброс токена и возврат к экрану входа.
+
+Для ручного тестирования и интеграции доступен Swagger UI: `http://localhost:5000/swagger`.
+
+---
+
+## 🗺 Карта API (REST-контроллеры)
+
+Всего в системе развернуто 12 контроллеров с единым RESTful-стандартом:
+
+| Контроллер | Маршрут | Доступ | Описание |
+|---|---|---|---|
+| `AuthController` | `/api/auth` | Анонимный / Superuser | Вход и регистрация обычных пользователей и администраторов |
+| `ManufacturersController` | `/api/manufacturers` | Чтение: All, Запись: Superuser | Справочник заводов-изготовителей |
+| `UavModelsController` | `/api/uavmodels` | Чтение: All (с маской), Запись: Superuser | Справочник моделей БПЛА и ТТХ |
+| `UavOwnersController` | `/api/uavowners` | Чтение: All (с маской), Запись: Superuser | Реестр собственников (ФЛ, ИП, ЮЛ) |
+| `UavUsersController` | `/api/uavusers` | Чтение: All (с маской), Запись: Superuser | Реестр внешних пилотов и операторов |
+| `UserPermissionsController` | `/api/userpermissions` | Чтение: All, Запись: Superuser | Матрица допусков пилотов к моделям (+ `/my`) |
+| `UavInstancesController` | `/api/uavinstances` | Чтение: All (с маской), Запись: Superuser | Учет физических бортов парка (+ `PATCH status`) |
+| `ComponentsCatalogController` | `/api/componentscatalog` | Чтение: All, Запись: Superuser | Каталог запчастей с JSONB-спецификациями |
+| `InstanceComponentsController` | `/api/instancecomponents` | Чтение: All, Запись: Superuser | Монтаж, демонтаж и учет установленных узлов |
+| `EngineersController` | `/api/engineers` | Чтение: All (с маской), Запись: Superuser | Справочник специалистов по ТОиР |
+| `MaintenanceLogsController` | `/api/maintenancelogs` | Чтение: All, Запись: Superuser | Журнал регламентных работ ТОиР |
+| `MaintenanceReplacementsController` | `/api/maintenancereplacements` | Чтение: All, Запись: Superuser | Журнал замен компонентов при ТО |
+
+---
+
+## 🚀 Инструкция по развертыванию и запуску
+
+### Предварительные требования:
+- Установленный **Docker Desktop**
+- Установленный **.NET 8 SDK** (или новее)
+
+### Шаг 1. Запуск базы данных в Docker
+Откройте консоль в корневой папке проекта и выполните:
+```bash
+docker compose up -d
+```
+*(Для полного сброса базы и применения миграций с нуля: `docker compose down -v && docker compose up -d`).*
+
+Контейнер `uav_civil_postgres` поднимется на стандартном порту `5432`.
+
+### Шаг 2. Запуск Backend API
+В терминале выполните:
+```bash
+dotnet run --project src/UavFleetManagement.Api
+```
+
+После старта в консоли появится:
+```text
+Now listening on: http://localhost:5000
+Application started. Press Ctrl+C to shut down.
+```
+
+### Шаг 3. Открытие в браузере
+- **Веб-клиент:** [http://localhost:5000/](http://localhost:5000/)
+- **Swagger UI:** [http://localhost:5000/swagger](http://localhost:5000/swagger)
+
+---
+
+## 👤 Тестовые учетные записи
+
+При первом запуске база данных автоматически инициализируется следующими пользователями:
+
+| Роль | Логин | Пароль | Чекбокс «Вход суперпользователя» | Привилегии |
+|---|---|---|:---:|---|
+| **Superuser** | `admin` | `Admin123!` | ✅ Включен | Полный CRUD, видит цены, полисы, полные ПДн |
+| **User** | `pilot` | `Pilot123!` | ❌ Выключен | Чтение каталогов и бортов, скрытые цены, маскированные лицензии |
+
+---
+
+## 📦 Сборка и публикация
+
+Для сборки проекта в Release-конфигурации:
+```bash
+dotnet build -c Release
+```
+
+Для создания автономного пакета публикации:
+```bash
+dotnet publish src/UavFleetManagement.Api -c Release -o ./publish
+```
