@@ -189,5 +189,3 @@ erDiagram
   * `uav_instances` ➔ `instance_components` / `maintenance_logs` — если физический борт окончательно удаляется из системы, автоматически стирается его текущая компоновка и история его ремонтов.
   * `maintenance_logs` ➔ `maintenance_component_replacements` — при удалении акта техобслуживания удаляются связанные записи о заменах деталей в этой сессии.
   * `uav_users` ➔ `user_model_permissions` — при удалении профиля пилота стираются все его допуски к полетам.
-
-
