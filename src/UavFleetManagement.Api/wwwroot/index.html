@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAV Fleet Management — Портал управления БАС</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    body {
+      background-color: #f0f2f5;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+    }
+    .navbar-custom {
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .login-container {
+      max-width: 460px;
+      margin: 4rem auto;
+    }
+    .card-login {
+      border: none;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .card-login-header {
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      color: white;
+      padding: 2.5rem 2rem 1.5rem;
+      text-align: center;
+    }
+    .card-dashboard {
+      border: none;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+      margin-bottom: 1.5rem;
+    }
+    .card-dashboard-header {
+      border-top-left-radius: 12px !important;
+      border-top-right-radius: 12px !important;
+      font-weight: 600;
+      background-color: #ffffff;
+      border-bottom: 1px solid #edf2f7;
+    }
+    .badge-role-superuser {
+      background-color: #dc3545;
+      color: white;
+      font-size: 0.9rem;
+    }
+    .badge-role-user {
+      background-color: #0d6efd;
+      color: white;
+      font-size: 0.9rem;
+    }
+    .masked-value {
+      color: #d97706;
+      font-family: monospace;
+      font-weight: bold;
+      background: #fef3c7;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .unmasked-value {
+      color: #059669;
+      font-family: monospace;
+      font-weight: bold;
+      background: #d1fae5;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    pre.json-viewer {
+      background: #1e1e1e;
+      color: #9cdcfe;
+      padding: 1rem;
+      border-radius: 8px;
+      max-height: 380px;
+      overflow-y: auto;
+      font-size: 0.85rem;
+    }
+    .nav-tabs .nav-link {
+      font-weight: 500;
+      color: #495057;
+    }
+    .nav-tabs .nav-link.active {
+      font-weight: 600;
+      color: #1e3c72;
+      border-bottom: 3px solid #1e3c72;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================= -->
+  <!-- ЭКРАН 1: АВТОРИЗАЦИЯ (Отображается по умолчанию, пока нет валидного токена) -->
+  <!-- ========================================================================= -->
+  <div id="loginScreen" class="container">
+    <div class="login-container">
+      <div class="card card-login">
+        <div class="card-login-header">
+          <i class="bi bi-airplane-engines fs-1"></i>
+          <h4 class="mt-2 mb-1 fw-bold">UAV Fleet Portal</h4>
+          <p class="small text-white-50 mb-0">Система учета БАС, парка бортов и ТОиР</p>
+        </div>
+        <div class="card-body p-4 bg-white">
+          <div id="loginAlert" class="alert alert-danger py-2 small d-none" role="alert"></div>
+
+          <form id="authForm" onsubmit="handleFormLogin(event)">
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Имя пользователя (Логин):</label>
+              <div class="input-group">
+                <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
+                <input type="text" class="form-control" id="loginUsername" placeholder="Например: admin или pilot" required>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Пароль:</label>
+              <div class="input-group">
+                <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+                <input type="password" class="form-control" id="loginPassword" placeholder="Введите пароль" required>
+              </div>
+            </div>
+
+            <div class="form-check form-switch mb-4">
+              <input class="form-check-input" type="checkbox" id="loginIsSuperuser">
+              <label class="form-check-label small" for="loginIsSuperuser">
+                Вход суперпользователя (Администратор)
+              </label>
+            </div>
+
+            <button type="submit" id="btnSubmitLogin" class="btn btn-primary w-100 py-2 fw-semibold mb-3">
+              <i class="bi bi-box-arrow-in-right me-1"></i> Войти в систему
+            </button>
+          </form>
+
+          <div class="position-relative my-4">
+            <hr>
+            <span class="position-absolute top-50 start-50 translate-middle bg-white px-2 small text-muted">
+              Быстрый демо-вход
+            </span>
+          </div>
+
+          <!-- Кнопки быстрого входа для тестирования -->
+          <div class="d-grid gap-2">
+            <button class="btn btn-outline-danger btn-sm text-start py-2" onclick="quickLogin('admin', 'Admin123!', true)">
+              <i class="bi bi-shield-lock-fill text-danger me-2"></i> <strong>Superuser</strong> (admin / Admin123!)
+              <div class="text-muted small ms-4">Полный CRUD, доступ к ценам и полным ПДн</div>
+            </button>
+            <button class="btn btn-outline-primary btn-sm text-start py-2" onclick="quickLogin('pilot', 'Pilot123!', false)">
+              <i class="bi bi-person-badge-fill text-primary me-2"></i> <strong>User</strong> (pilot / Pilot123!)
+              <div class="text-muted small ms-4">Чтение данных, маскирование лицензий и скрытие цен</div>
+            </button>
+          </div>
+
+          <div class="text-center mt-4">
+            <a href="/swagger" target="_blank" class="small text-decoration-none text-secondary">
+              <i class="bi bi-code-slash me-1"></i> Перейти в спецификацию Swagger UI
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================================================= -->
+  <!-- ЭКРАН 2: РАБОЧИЙ КАБИНЕТ (Открывается только после успешного входа)        -->
+  <!-- ========================================================================= -->
+  <div id="mainDashboard" class="d-none">
+    <!-- НАВИГАЦИОННАЯ ПАНЕЛЬ -->
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom mb-4">
+      <div class="container">
+        <span class="navbar-brand fw-bold">
+          <i class="bi bi-airplane-engines me-2"></i> UAV Fleet Management
+        </span>
+
+        <div class="d-flex align-items-center gap-3">
+          <a href="/swagger" target="_blank" class="btn btn-outline-light btn-sm">
+            <i class="bi bi-journal-text me-1"></i> Swagger UI
+          </a>
+
+          <div class="text-white d-flex align-items-center gap-2">
+            <span class="small text-white-50">Вы вошли как:</span>
+            <span id="currentUserNameLabel" class="fw-bold"></span>
+            <span id="currentUserRoleBadge" class="badge"></span>
+          </div>
+
+          <button class="btn btn-danger btn-sm" onclick="handleLogout()">
+            <i class="bi bi-box-arrow-right me-1"></i> Выйти
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- ОСНОВНОЙ КОНТЕНТ -->
+    <div class="container pb-5">
+      <div class="row">
+
+        <!-- ЛЕВАЯ КОЛОНКА: КОНСОЛЬ ОТВЕТОВ API И СТАТУС -->
+        <div class="col-lg-4 mb-4">
+          <div class="card card-dashboard">
+            <div class="card-header card-dashboard-header d-flex justify-content-between align-items-center">
+              <span><i class="bi bi-info-circle me-1"></i> Текущая сессия</span>
+              <span id="roleNoticeBadge" class="badge bg-secondary">Сессия активна</span>
+            </div>
+            <div class="card-body">
+              <p class="small text-muted mb-2">
+                Режим доступа определяет видимость конфиденциальных полей (цены, полисы каско, номера документов).
+              </p>
+              <div id="roleDescriptionAlert" class="alert alert-info py-2 small mb-0"></div>
+            </div>
+          </div>
+
+          <div class="card card-dashboard">
+            <div class="card-header card-dashboard-header d-flex justify-content-between align-items-center">
+              <span><i class="bi bi-terminal me-1"></i> Консоль ответов API</span>
+              <span id="apiStatusBadge" class="badge bg-secondary">Готов</span>
+            </div>
+            <div class="card-body p-2">
+              <pre id="jsonViewer" class="json-viewer mb-0">// Нажмите любую кнопку действий для отправки запроса...</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- ПРАВАЯ КОЛОНКА: ВКЛАДКИ РАБОТЫ С ТАБЛИЦАМИ И ФОРМЫ -->
+        <div class="col-lg-8">
+          <div class="card card-dashboard">
+            <div class="card-header card-dashboard-header p-2">
+              <ul class="nav nav-tabs card-header-tabs" id="portalTabs" role="tablist">
+                <li class="nav-item">
+                  <button class="nav-link active" id="tab-data-btn" data-bs-toggle="tab" data-bs-target="#tab-data" type="button">
+                    <i class="bi bi-table me-1"></i> Просмотр таблиц (Data Masking)
+                  </button>
+                </li>
+                <li class="nav-item">
+                  <button class="nav-link" id="tab-create-model-btn" data-bs-toggle="tab" data-bs-target="#tab-create-model" type="button">
+                    <i class="bi bi-plus-circle me-1"></i> Новая Модель БПЛА
+                  </button>
+                </li>
+                <li class="nav-item">
+                  <button class="nav-link" id="tab-create-instance-btn" data-bs-toggle="tab" data-bs-target="#tab-create-instance" type="button">
+                    <i class="bi bi-plus-circle me-1"></i> Регистрация борта
+                  </button>
+                </li>
+                <li class="nav-item">
+                  <button class="nav-link" id="tab-create-mfg-btn" data-bs-toggle="tab" data-bs-target="#tab-create-mfg" type="button">
+                    <i class="bi bi-building me-1"></i> Производитель
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <div class="card-body">
+              <div class="tab-content" id="portalTabContent">
+
+                <!-- ВКЛАДКА 1: ПРОСМОТР ТАБЛИЦ И СРАВНЕНИЕ МАСКИРОВАНИЯ -->
+                <div class="tab-pane fade show active" id="tab-data">
+                  <div class="d-flex gap-2 flex-wrap mb-3">
+                    <button class="btn btn-outline-primary btn-sm" onclick="loadResource('/api/uavmodels', 'Модели БПЛА')">
+                      <i class="bi bi-airplane me-1"></i> Модели БПЛА
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="loadResource('/api/uavinstances', 'Парк бортов')">
+                      <i class="bi bi-card-checklist me-1"></i> Парк бортов
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="loadResource('/api/uavowners', 'Владельцы БПЛА')">
+                      <i class="bi bi-people me-1"></i> Владельцы (ПДн)
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="loadResource('/api/uavusers', 'Пилоты')">
+                      <i class="bi bi-person-badge me-1"></i> Пилоты (Лицензии)
+                    </button>
+                    <button class="btn btn-outline-dark btn-sm" onclick="loadResource('/api/engineers', 'Инженеры')">
+                      <i class="bi bi-tools me-1"></i> Инженеры ТОиР
+                    </button>
+                  </div>
+
+                  <div class="alert alert-light border small py-2 mb-3">
+                    <i class="bi bi-eye me-1"></i> 
+                    Зеленым цветом <span class="unmasked-value">открыто</span> отмечены секретные поля (для Superuser). 
+                    Оранжевым <span class="masked-value">&lt;скрыто/null&gt;</span> или маской отмечены поля, защищенные политикой приватности.
+                  </div>
+
+                  <div id="tableContainer" class="table-responsive">
+                    <div class="text-center text-muted py-5">
+                      <i class="bi bi-arrow-up-circle fs-2 text-primary"></i>
+                      <p class="mt-2 mb-0">Нажмите любую кнопку сверху для получения таблицы из PostgreSQL.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ВКЛАДКА 2: ФОРМА ДОБАВЛЕНИЯ МОДЕЛИ БПЛА -->
+                <div class="tab-pane fade" id="tab-create-model">
+                  <div class="alert alert-warning py-2 small mb-3">
+                    <i class="bi bi-shield-lock me-1"></i> Операция <code>POST /api/uavmodels</code> доступна только для роли <strong>Superuser</strong>.
+                  </div>
+                  <form id="formCreateModel" onsubmit="submitCreateModel(event)">
+                    <div class="row g-2 mb-2">
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">ID Производителя:</label>
+                        <input type="number" class="form-control form-control-sm" id="modelMfgId" value="1" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Наименование модели:</label>
+                        <input type="text" class="form-control form-control-sm" id="modelName" value="Supercam S350" required>
+                      </div>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Аэродин. схема:</label>
+                        <select class="form-select form-select-sm" id="modelSchema">
+                          <option value="FixedWing">FixedWing (Самолет)</option>
+                          <option value="Multirotor">Multirotor (Коптер)</option>
+                          <option value="VTOL">VTOL (Гибрид)</option>
+                          <option value="Helicopter">Helicopter (Вертолет)</option>
+                        </select>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Весовая категория:</label>
+                        <select class="form-select form-select-sm" id="modelWeight">
+                          <option value="Range150gTo30kg">Range150gTo30kg (От 150г до 30кг)</option>
+                          <option value="Under150g">Under150g (До 150г)</option>
+                          <option value="Over30kg">Over30kg (Свыше 30кг)</option>
+                        </select>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Тип управления:</label>
+                        <select class="form-select form-select-sm" id="modelControl">
+                          <option value="SemiAutonomous">SemiAutonomous</option>
+                          <option value="Autonomous">Autonomous</option>
+                          <option value="ManualRadio">ManualRadio</option>
+                          <option value="ManualFPV">ManualFPV</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                      <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Масса MTOW (кг):</label>
+                        <input type="number" step="0.1" class="form-control form-control-sm" id="modelMtow" value="11.5" required>
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Крейс. скор. (км/ч):</label>
+                        <input type="number" class="form-control form-control-sm" id="modelSpeed" value="72">
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Дальность (км):</label>
+                        <input type="number" step="0.1" class="form-control form-control-sm" id="modelRange" value="80.0">
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Базовая цена (руб):</label>
+                        <input type="number" step="0.01" class="form-control form-control-sm" id="modelPrice" value="3200000.00">
+                      </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-sm">
+                      <i class="bi bi-cloud-arrow-up me-1"></i> Отправить модель в БД
+                    </button>
+                  </form>
+                </div>
+
+                <!-- ВКЛАДКА 3: ФОРМА ДОБАВЛЕНИЯ БОРТА -->
+                <div class="tab-pane fade" id="tab-create-instance">
+                  <div class="alert alert-warning py-2 small mb-3">
+                    <i class="bi bi-shield-lock me-1"></i> Операция <code>POST /api/uavinstances</code> доступна для <strong>Superuser</strong>.
+                  </div>
+                  <form id="formCreateInstance" onsubmit="submitCreateInstance(event)">
+                    <div class="row g-2 mb-2">
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">ID Модели:</label>
+                        <input type="number" class="form-control form-control-sm" id="instModelId" value="1" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">ID Владельца (Опционально):</label>
+                        <input type="number" class="form-control form-control-sm" id="instOwnerId" placeholder="Оставьте пустым или укажите ID">
+                      </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Серийный номер:</label>
+                        <input type="text" class="form-control form-control-sm" id="instSerial" value="SC-350-2024-0012" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Учетный номер Росавиации:</label>
+                        <input type="text" class="form-control form-control-sm" id="instRosa" value="RA-0231B">
+                      </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Статус борта:</label>
+                        <select class="form-select form-select-sm" id="instStatus">
+                          <option value="Active">Active (В эксплуатации)</option>
+                          <option value="Storage">Storage (На хранении)</option>
+                          <option value="Maintenance">Maintenance (На ТО)</option>
+                          <option value="Decommissioned">Decommissioned (Списан)</option>
+                        </select>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Полис КАСКО (секретно):</label>
+                        <input type="text" class="form-control form-control-sm" id="instInsurance" value="POLIS-SOGAZ-2024-77">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Цвет корпуса:</label>
+                        <input type="text" class="form-control form-control-sm" id="instColor" value="Камуфляж / Серый">
+                      </div>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-sm">
+                      <i class="bi bi-cloud-arrow-up me-1"></i> Зарегистрировать борт в БД
+                    </button>
+                  </form>
+                </div>
+
+                <!-- ВКЛАДКА 4: ФОРМА ДОБАВЛЕНИЯ ПРОИЗВОДИТЕЛЯ -->
+                <div class="tab-pane fade" id="tab-create-mfg">
+                  <div class="alert alert-warning py-2 small mb-3">
+                    <i class="bi bi-shield-lock me-1"></i> Операция <code>POST /api/manufacturers</code> доступна для <strong>Superuser</strong>.
+                  </div>
+                  <form id="formCreateMfg" onsubmit="submitCreateMfg(event)">
+                    <div class="row g-2 mb-2">
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Наименование организации:</label>
+                        <input type="text" class="form-control form-control-sm" id="mfgName" value="ГК «Беспилотные системы»" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Страна:</label>
+                        <input type="text" class="form-control form-control-sm" id="mfgCountry" value="Россия">
+                      </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">ИНН:</label>
+                        <input type="text" class="form-control form-control-sm" id="mfgInn" value="1831142512">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Веб-сайт:</label>
+                        <input type="text" class="form-control form-control-sm" id="mfgWeb" value="https://supercam.aero">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Телефон:</label>
+                        <input type="text" class="form-control form-control-sm" id="mfgPhone" value="+7 (3412) 65-52-55">
+                      </div>
+                    </div>
+                    <button type="submit" class="btn btn-dark btn-sm">
+                      <i class="bi bi-cloud-arrow-up me-1"></i> Сохранить производителя
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let token = localStorage.getItem('uav_token') || null;
+    let role = localStorage.getItem('uav_role') || null;
+    let username = localStorage.getItem('uav_user') || null;
+
+    // Инициализация при загрузке страницы: проверяем наличие токена
+    window.addEventListener('DOMContentLoaded', () => {
+      if (token && role && username) {
+        showDashboard();
+      } else {
+        showLoginScreen();
+      }
+    });
+
+    function showLoginScreen() {
+      document.getElementById('loginScreen').classList.remove('d-none');
+      document.getElementById('mainDashboard').classList.add('d-none');
+    }
+
+    function showDashboard() {
+      document.getElementById('loginScreen').classList.add('d-none');
+      document.getElementById('mainDashboard').classList.remove('d-none');
+
+      document.getElementById('currentUserNameLabel').innerText = username;
+      const roleBadge = document.getElementById('currentUserRoleBadge');
+      const roleDesc = document.getElementById('roleDescriptionAlert');
+
+      if (role === 'Superuser') {
+        roleBadge.className = 'badge badge-role-superuser';
+        roleBadge.innerText = 'Superuser';
+        roleDesc.className = 'alert alert-danger py-2 small mb-0';
+        roleDesc.innerHTML = '<strong>Роль: Superuser</strong> — Вам доступен полный CRUD (создание, изменение, удаление) и отображение всех закрытых данных: базовых цен, полисов КАСКО, ИНН, СНИЛС и лицензий.';
+      } else {
+        roleBadge.className = 'badge badge-role-user';
+        roleBadge.innerText = 'User';
+        roleDesc.className = 'alert alert-primary py-2 small mb-0';
+        roleDesc.innerHTML = '<strong>Роль: User</strong> — Доступ в режиме чтения. Согласно политике Data Privacy конфиденциальные поля (цены, полисы) скрыты (null), а лицензии пилотов замаскированы.';
+      }
+
+      // Автоматически подгружаем первую таблицу
+      loadResource('/api/uavmodels', 'Модели БПЛА');
+    }
+
+    function handleLogout() {
+      token = null;
+      role = null;
+      username = null;
+      localStorage.removeItem('uav_token');
+      localStorage.removeItem('uav_role');
+      localStorage.removeItem('uav_user');
+      showLoginScreen();
+    }
+
+    // Быстрый тестовый вход
+    async function quickLogin(u, p, isSuper) {
+      document.getElementById('loginUsername').value = u;
+      document.getElementById('loginPassword').value = p;
+      document.getElementById('loginIsSuperuser').checked = isSuper;
+      await performLogin(u, p, isSuper);
+    }
+
+    async function handleFormLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('loginUsername').value.trim();
+      const p = document.getElementById('loginPassword').value;
+      const isSuper = document.getElementById('loginIsSuperuser').checked;
+      await performLogin(u, p, isSuper);
+    }
+
+    async function performLogin(u, p, isSuper) {
+      const alertBox = document.getElementById('loginAlert');
+      alertBox.classList.add('d-none');
+
+      const url = isSuper ? '/api/auth/superuser/login' : '/api/auth/login';
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.token) {
+          token = data.token;
+          role = data.role;
+          username = data.username;
+          localStorage.setItem('uav_token', token);
+          localStorage.setItem('uav_role', role);
+          localStorage.setItem('uav_user', username);
+          showDashboard();
+        } else {
+          alertBox.innerText = data.error || (data.errors ? JSON.stringify(data.errors) : 'Неверный логин или пароль');
+          alertBox.classList.remove('d-none');
+        }
+      } catch (err) {
+        alertBox.innerText = 'Ошибка подключения к серверу: ' + err.message;
+        alertBox.classList.remove('d-none');
+      }
+    }
+
+    function renderConsole(data, status) {
+      const viewer = document.getElementById('jsonViewer');
+      const badge = document.getElementById('apiStatusBadge');
+      viewer.innerText = JSON.stringify(data, null, 2);
+
+      if (status >= 200 && status < 300) {
+        badge.className = 'badge bg-success';
+        badge.innerText = `HTTP ${status}`;
+      } else if (status >= 400) {
+        badge.className = 'badge bg-danger';
+        badge.innerText = `HTTP ${status}`;
+      } else {
+        badge.className = 'badge bg-secondary';
+        badge.innerText = `HTTP ${status}`;
+      }
+    }
+
+    async function sendRequest(endpoint, method = 'GET', body = null) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      document.getElementById('apiStatusBadge').className = 'badge bg-warning';
+      document.getElementById('apiStatusBadge').innerText = 'Запрос...';
+
+      try {
+        const res = await fetch(endpoint, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : null
+        });
+
+        let data = null;
+        const text = await res.text();
+        try {
+          data = text ? JSON.parse(text) : { status: res.status, message: 'Успешно' };
+        } catch {
+          data = { response: text };
+        }
+
+        renderConsole(data, res.status);
+        return { status: res.status, data };
+      } catch (err) {
+        renderConsole({ error: err.message }, 500);
+        return { status: 500, error: err.message };
+      }
+    }
+
+    async function loadResource(endpoint, title) {
+      const res = await sendRequest(endpoint);
+      const container = document.getElementById('tableContainer');
+
+      if (res.status === 200 && Array.isArray(res.data)) {
+        if (res.data.length === 0) {
+          container.innerHTML = `<div class="alert alert-info">В таблице '${title}' пока нет данных.</div>`;
+          return;
+        }
+
+        const keys = Object.keys(res.data[0]);
+        let html = `<h6 class="fw-bold mb-2">${title} (Всего записей: ${res.data.length})</h6>`;
+        html += `<table class="table table-hover table-sm align-middle small table-bordered">`;
+        html += `<thead class="table-dark"><tr>`;
+        keys.forEach(k => html += `<th>${k}</th>`);
+        html += `</tr></thead><tbody>`;
+
+        res.data.forEach(row => {
+          html += `<tr>`;
+          keys.forEach(k => {
+            let val = row[k];
+            let cell = val;
+
+            if (val === null || val === undefined) {
+              cell = `<span class="masked-value">&lt;скрыто/null&gt;</span>`;
+            } else if (typeof val === 'string' && val.includes('*')) {
+              cell = `<span class="masked-value">${val}</span>`;
+            } else if (k === 'basePriceRub' || k === 'hullInsurancePolicy') {
+              cell = `<span class="unmasked-value">${val}</span>`;
+            }
+
+            html += `<td>${cell}</td>`;
+          });
+          html += `</tr>`;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+      } else {
+        container.innerHTML = `
+          <div class="alert alert-danger">
+            Ошибка загрузки: статус HTTP ${res.status}. ${res.data?.error || ''}
+          </div>
+        `;
+      }
+    }
+
+    // Обработчик формы создания модели
+    async function submitCreateModel(e) {
+      e.preventDefault();
+      const body = {
+        manufacturerId: parseInt(document.getElementById('modelMfgId').value),
+        modelName: document.getElementById('modelName').value.trim(),
+        aerodynamicSchema: document.getElementById('modelSchema').value,
+        weightCategory: document.getElementById('modelWeight').value,
+        controlType: document.getElementById('modelControl').value,
+        mtowKg: parseFloat(document.getElementById('modelMtow').value),
+        cruisingSpeedKmh: parseInt(document.getElementById('modelSpeed').value) || null,
+        maxRangeKm: parseFloat(document.getElementById('modelRange').value) || null,
+        basePriceRub: parseFloat(document.getElementById('modelPrice').value) || null,
+        minTempCelsius: -20,
+        maxTempCelsius: 40
+      };
+
+      const res = await sendRequest('/api/uavmodels', 'POST', body);
+      if (res.status === 201 || res.status === 200) {
+        alert('Модель БПЛА успешно добавлена в PostgreSQL!');
+        // Переключаемся на первую вкладку
+        const tabBtn = new bootstrap.Tab(document.getElementById('tab-data-btn'));
+        tabBtn.show();
+        loadResource('/api/uavmodels', 'Модели БПЛА');
+      } else {
+        alert('Ошибка при добавлении модели: ' + (res.data?.error || JSON.stringify(res.data)));
+      }
+    }
+
+    // Обработчик формы регистрации борта
+    async function submitCreateInstance(e) {
+      e.preventDefault();
+      const body = {
+        modelId: parseInt(document.getElementById('instModelId').value),
+        ownerId: document.getElementById('instOwnerId').value ? parseInt(document.getElementById('instOwnerId').value) : null,
+        serialNumber: document.getElementById('instSerial').value.trim(),
+        rosaviatsiaNumber: document.getElementById('instRosa').value.trim(),
+        productionDate: new Date().toISOString().split('T')[0],
+        totalFlightTimeHours: 0.0,
+        currentStatus: document.getElementById('instStatus').value,
+        hullInsurancePolicy: document.getElementById('instInsurance').value.trim(),
+        primaryColor: document.getElementById('instColor').value.trim()
+      };
+
+      const res = await sendRequest('/api/uavinstances', 'POST', body);
+      if (res.status === 201 || res.status === 200) {
+        alert('Борт БАС успешно зарегистрирован в PostgreSQL!');
+        const tabBtn = new bootstrap.Tab(document.getElementById('tab-data-btn'));
+        tabBtn.show();
+        loadResource('/api/uavinstances', 'Парк бортов');
+      } else {
+        alert('Ошибка регистрации борта: ' + (res.data?.error || JSON.stringify(res.data)));
+      }
+    }
+
+    // Обработчик формы создания производителя
+    async function submitCreateMfg(e) {
+      e.preventDefault();
+      const body = {
+        name: document.getElementById('mfgName').value.trim(),
+        country: document.getElementById('mfgCountry').value.trim(),
+        inn: document.getElementById('mfgInn').value.trim(),
+        website: document.getElementById('mfgWeb').value.trim(),
+        contactPhone: document.getElementById('mfgPhone').value.trim()
+      };
+
+      const res = await sendRequest('/api/manufacturers', 'POST', body);
+      if (res.status === 201 || res.status === 200) {
+        alert('Производитель успешно сохранен в PostgreSQL!');
+        const tabBtn = new bootstrap.Tab(document.getElementById('tab-data-btn'));
+        tabBtn.show();
+        loadResource('/api/manufacturers', 'Производители');
+      } else {
+        alert('Ошибка сохранения производителя: ' + (res.data?.error || JSON.stringify(res.data)));
+      }
+    }
+  </script>
+</body>
+</html>
